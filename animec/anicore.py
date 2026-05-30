@@ -5,8 +5,10 @@ import re
 from bs4 import BeautifulSoup
 from urllib.request import urlopen
 from urllib.error import HTTPError
-from .errors import NoResultFound
-from .helpers import escape_url
+from animec.errors import NoResultFound
+from animec.helpers import escape_url
+
+# todo related anime
 
 
 class Anime:
@@ -21,6 +23,8 @@ class Anime:
     ----------
     url
         Returns the url of the anime main page
+    id
+        Returns the MAL ID of the anime
     name
         Returns the main name of the anime
 
@@ -31,8 +35,13 @@ class Anime:
     alt_titles
         Returns alternative titles
 
+
+    score
+        The score of the anime
     episodes
         The episode count of the anime
+    avg_episode_duration
+        The average episode duration of the anime
     aired
         Anime's airing time
     broadcast
@@ -56,6 +65,8 @@ class Anime:
         List of anime genres or kind
     themes: `list <https://docs.python.org/3/tutorial/datastructures.html>`__
         List of anime themes
+    demographics: `list <https://docs.python.org/3/tutorial/datastructures.html>`__
+        List of anime demographics
 
     description
         Short description about the anime
@@ -65,7 +76,34 @@ class Anime:
         Official anime teaser/promotion
     """
 
-    def __init__(self, query: str):
+    def __init__(self) -> None:
+        self.url: str | None = None
+        self.id: int | None = None
+        self.name: str | None = None
+
+        self.title_english: str | None = None
+        self.title_jp: str | None = None
+        self.alt_titles: str | None = None
+
+        self.episodes = None
+        self.premiered = None
+        self.aired = None
+        self.broadcast = None
+        self.rating = None
+        self.ranked = None
+        self.score = None
+        self.popularity = None
+        self.favorites = None
+
+        self.type = None
+        self.status = None
+        self.producers = None
+
+        self.description = None
+        self.poster = None
+
+    @classmethod
+    def search(cls, query: str):
         query = escape_url(query)
 
         to_open = f"https://myanimelist.net/anime.php?q={query}"
@@ -85,12 +123,32 @@ class Anime:
         url = escape_url(url)
 
         anime_page_open = urlopen(url)
+        obj = cls()
+        obj.__process_anime_page(anime_page_open)
+        url_parts = anime_page_open.geturl().split("/")
+        if len(url_parts) > 2:
+            obj.id = int(url_parts[-2])
+        return obj
+
+    @classmethod
+    def from_id(cls, mal_id: int):
+        obj = cls()
+        to_open = f"https://myanimelist.net/anime/{mal_id}"
+        try:
+            anime_page_open = urlopen(to_open)
+        except HTTPError:
+            raise NoResultFound(f"Can't find a matching result for MAL ID: '{mal_id}'")
+        obj.__process_anime_page(anime_page_open)
+        obj.id = mal_id
+        return obj
+
+    def __process_anime_page(self, anime_page_open):
         anime_page = BeautifulSoup(anime_page_open, "html.parser")
 
         name = anime_page.find("h1", {"class": "title-name h1_bold_none"})
 
-        self.__spaceit_divs = anime_page.findAll("div", {"class": "spaceit_pad"})
-        dark_text = anime_page.findAll("span", {"class": "dark_text"})
+        self.__spaceit_divs = anime_page.find_all("div", {"class": "spaceit_pad"})
+        dark_text = anime_page.find_all("span", {"class": "dark_text"})
         self._dark = dark_text
 
         title_english = self._divCh_("English:")
@@ -98,11 +156,13 @@ class Anime:
         alt_titles = self._divCh_("Synonyms:")
 
         episodes = self._divCh_("Episodes:")
+        avg_episode_duration = self._divCh_("Duration:")
         premiered = self._divCh_("Premiered:")
         aired = self._divCh_("Aired:")
         broadcast = self._divCh_("Broadcast:")
 
         rating = self._parent_(element=dark_text, txt="Rating:")
+        score = anime_page.select_one(".score-label")
         popularity = self._parent_(element=dark_text, txt="Popularity:")
         favorites = self._parent_(element=dark_text, txt="Favorites:")
         _type = self._parent_(element=dark_text, txt="Type:")
@@ -124,7 +184,7 @@ class Anime:
         description = anime_page.find("p", {"itemprop": "description"}).text
         poster = anime_page.find("img", {"itemprop": "image"})["data-src"]
 
-        self.url = url or None
+        self.url = anime_page_open.geturl() or None
         self.name = name.text or None
 
         self.title_english = title_english or None
@@ -136,9 +196,11 @@ class Anime:
         self.aired = aired or None
         self.broadcast = broadcast or None
         self.rating = rating or None
+        self.avg_episode_duration = avg_episode_duration or None
         self.ranked = ranked or None
         self.popularity = popularity or None
         self.favorites = favorites or None
+        self.score = float(score.text) or None
 
         self.type = _type or None
         self.status = status or None
@@ -164,7 +226,7 @@ class Anime:
         for container in self._dark:
             if "Genres" in container.text or "Genre" in container.text:
                 parent = container.parent
-                links = parent.findChildren("a")
+                links = parent.find_all("a")
 
                 for sub in links:
                     genres.append(sub.text)
@@ -177,7 +239,7 @@ class Anime:
         for container in self._dark:
             if "Themes" in container.text or "Theme" in container.text:
                 parent = container.parent
-                links = parent.findChildren("a")
+                links = parent.find_all("a")
 
                 for sub in links:
                     themes_.append(sub.text)
@@ -185,12 +247,25 @@ class Anime:
         return themes_
 
     @property
+    def demographics(self):
+        demographics_ = []
+        for container in self._dark:
+            if "Demographics" in container.text or "Demographic" in container.text:
+                parent = container.parent
+                links = parent.find_all("a")
+
+                for sub in links:
+                    demographics_.append(sub.text)
+
+        return demographics_
+
+    @property
     def teaser(self):
         url = urlopen(self.url + "/video", timeout=5)
         soup = BeautifulSoup(url, "html.parser")
 
         div = soup.find("div", {"class": "video-list-outer po-r pv"})
-        teaser_link = div.findChildren(
+        teaser_link = div.find_all(
             "a", {"class": "iframe js-fancybox-video video-list di-ib po-r"}
         )[0]["href"]
 
@@ -223,7 +298,7 @@ class Anime:
         anime_page = urlopen(self.url + "/userrecs")
         soup = BeautifulSoup(anime_page, "html.parser")
 
-        headers = soup.findAll("strong", limit=15)
+        headers = soup.find_all("strong", limit=15)
 
         recommendations = [i.get_text() for i in headers]
 
@@ -231,3 +306,10 @@ class Anime:
         ri.pop(0)
 
         return ri[:5]
+
+
+if __name__ == "__main__":
+    a = Anime.search("frieren")
+    print(a.score)
+    a2 = Anime.from_id(1)
+    print(a2.avg_episode_duration)
