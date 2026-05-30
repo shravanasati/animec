@@ -8,9 +8,13 @@ from urllib.error import HTTPError
 from animec.errors import NoResultFound
 from animec.helpers import escape_url
 
+
 def _collapse_whitespace(s: str):
     return " ".join([i.strip() for i in s.split() if i.strip()])
 
+
+def clean_number(s: str):
+    return int(s.replace(",", ""))
 
 
 class Anime:
@@ -54,6 +58,10 @@ class Anime:
         Anime's ranking
     popularity
         The popularity of the anime
+    num_list_users
+        Count of people who have this anime in their lists
+    num_scoring_users
+        Count of people who have rated this anime
     favorites
         Count of people who tagged the anime as their favourite
 
@@ -171,6 +179,8 @@ class Anime:
         score = anime_soup.select_one(".score-label")
         popularity = self._parent_(element=dark_text, txt="Popularity:")
         favorites = self._parent_(element=dark_text, txt="Favorites:")
+        num_list_users = self._parent_(element=dark_text, txt="Members:")
+        num_scoring_users = anime_soup.find("span", {"itemprop": "ratingCount"}).text
         _type = self._parent_(element=dark_text, txt="Type:")
         status = self._parent_(element=dark_text, txt="Status:")
         producers = self._parent_(element=dark_text, txt="Producers:").split(", ")
@@ -190,7 +200,6 @@ class Anime:
         description = anime_soup.find("p", {"itemprop": "description"}).text
         poster = anime_soup.find("img", {"itemprop": "image"})["data-src"]
 
-
         self.url = anime_page_resp.geturl() or None
         self.name = name.text or None
 
@@ -207,6 +216,8 @@ class Anime:
         self.ranked = ranked or None
         self.popularity = popularity or None
         self.favorites = favorites or None
+        self.num_list_users = clean_number(num_list_users) or None
+        self.num_scoring_users = clean_number(num_scoring_users) or None
         self.score = float(score.text) or None
 
         self.type = _type or None
@@ -331,6 +342,15 @@ class Anime:
 
 if __name__ == "__main__":
     a = Anime.search("frieren")
-    print(a.related_entries)
+    print(a.num_list_users, a.num_scoring_users)
     a2 = Anime.from_id(1)
-    print(a2.related_entries)
+    print(a2.num_list_users, a2.num_scoring_users)
+
+    # import time
+    # from concurrent.futures import ThreadPoolExecutor
+    # now = time.time()
+    # with ThreadPoolExecutor(10) as pool:
+    #     pool.map(Anime.from_id, range(1, 610))
+
+    # finish = time.time()
+    # print(finish - now)
