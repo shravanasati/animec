@@ -8,7 +8,9 @@ from urllib.error import HTTPError
 from animec.errors import NoResultFound
 from animec.helpers import escape_url
 
-# todo related anime
+def _collapse_whitespace(s: str):
+    return " ".join([i.strip() for i in s.split() if i.strip()])
+
 
 
 class Anime:
@@ -67,6 +69,9 @@ class Anime:
         List of anime themes
     demographics: `list <https://docs.python.org/3/tutorial/datastructures.html>`__
         List of anime demographics
+    related_entries: list[dict[str, str]]
+        Related entries of the anime (sequel/prequel/adaptation)
+        The dictionary contains these keys: relation, title and url.
 
     description
         Short description about the anime
@@ -142,13 +147,14 @@ class Anime:
         obj.id = mal_id
         return obj
 
-    def __process_anime_page(self, anime_page_open):
-        anime_page = BeautifulSoup(anime_page_open, "html.parser")
+    def __process_anime_page(self, anime_page_resp):
+        anime_soup = BeautifulSoup(anime_page_resp, "html.parser")
+        self._related_entry_tiles = anime_soup.select(".entries-tile .content")
 
-        name = anime_page.find("h1", {"class": "title-name h1_bold_none"})
+        name = anime_soup.find("h1", {"class": "title-name h1_bold_none"})
 
-        self.__spaceit_divs = anime_page.find_all("div", {"class": "spaceit_pad"})
-        dark_text = anime_page.find_all("span", {"class": "dark_text"})
+        self.__spaceit_divs = anime_soup.find_all("div", {"class": "spaceit_pad"})
+        dark_text = anime_soup.find_all("span", {"class": "dark_text"})
         self._dark = dark_text
 
         title_english = self._divCh_("English:")
@@ -162,7 +168,7 @@ class Anime:
         broadcast = self._divCh_("Broadcast:")
 
         rating = self._parent_(element=dark_text, txt="Rating:")
-        score = anime_page.select_one(".score-label")
+        score = anime_soup.select_one(".score-label")
         popularity = self._parent_(element=dark_text, txt="Popularity:")
         favorites = self._parent_(element=dark_text, txt="Favorites:")
         _type = self._parent_(element=dark_text, txt="Type:")
@@ -170,7 +176,7 @@ class Anime:
         producers = self._parent_(element=dark_text, txt="Producers:").split(", ")
 
         ranked_text = str(
-            anime_page.find(
+            anime_soup.find(
                 "div",
                 {
                     "class": "spaceit_pad po-r js-statistics-info di-ib",
@@ -181,10 +187,11 @@ class Anime:
         ranked = re.search("#.*<", ranked_text)
         ranked = ranked.group().split("<")[0] if ranked else None
 
-        description = anime_page.find("p", {"itemprop": "description"}).text
-        poster = anime_page.find("img", {"itemprop": "image"})["data-src"]
+        description = anime_soup.find("p", {"itemprop": "description"}).text
+        poster = anime_soup.find("img", {"itemprop": "image"})["data-src"]
 
-        self.url = anime_page_open.geturl() or None
+
+        self.url = anime_page_resp.geturl() or None
         self.name = name.text or None
 
         self.title_english = title_english or None
@@ -260,6 +267,20 @@ class Anime:
         return demographics_
 
     @property
+    def related_entries(self):
+        entries = []
+        for tile in self._related_entry_tiles:
+            entries.append(
+                {
+                    "relation": _collapse_whitespace(tile.select_one(".relation").text),
+                    "title": _collapse_whitespace(tile.select_one(".title > a").text),
+                    "url": tile.select_one(".title > a").attrs["href"],
+                }
+            )
+
+        return entries
+
+    @property
     def teaser(self):
         url = urlopen(self.url + "/video", timeout=5)
         soup = BeautifulSoup(url, "html.parser")
@@ -310,6 +331,6 @@ class Anime:
 
 if __name__ == "__main__":
     a = Anime.search("frieren")
-    print(a.score)
+    print(a.related_entries)
     a2 = Anime.from_id(1)
-    print(a2.avg_episode_duration)
+    print(a2.related_entries)
