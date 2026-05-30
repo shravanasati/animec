@@ -158,6 +158,7 @@ class Anime:
     def __process_anime_page(self, anime_page_resp):
         anime_soup = BeautifulSoup(anime_page_resp, "html.parser")
         self._related_entry_tiles = anime_soup.select(".entries-tile .content")
+        self._related_entry_rows = anime_soup.select(".entries-table tr")
 
         name = anime_soup.find("h1", {"class": "title-name h1_bold_none"})
 
@@ -280,14 +281,45 @@ class Anime:
     @property
     def related_entries(self):
         entries = []
+        seen_urls = set()
         for tile in self._related_entry_tiles:
+            link = tile.select_one(".title > a")
+            url = link.attrs["href"] if link else None
+            if url and url in seen_urls:
+                continue
+            if url:
+                seen_urls.add(url)
             entries.append(
                 {
                     "relation": _collapse_whitespace(tile.select_one(".relation").text),
-                    "title": _collapse_whitespace(tile.select_one(".title > a").text),
-                    "url": tile.select_one(".title > a").attrs["href"],
+                    "title": _collapse_whitespace(link.text) if link else None,
+                    "url": url,
                 }
             )
+
+        for row in self._related_entry_rows:
+            relation_cell = row.select_one("td.ar")
+            relation = (
+                _collapse_whitespace(relation_cell.get_text(strip=True))
+                if relation_cell
+                else None
+            )
+            if relation:
+                relation = relation.rstrip(":")
+            links = row.select("ul.entries li a[href]")
+
+            for link in links:
+                url = link.attrs.get("href")
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                entries.append(
+                    {
+                        "relation": relation,
+                        "title": _collapse_whitespace(link.text),
+                        "url": url,
+                    }
+                )
 
         return entries
 
@@ -341,10 +373,11 @@ class Anime:
 
 
 if __name__ == "__main__":
-    a = Anime.search("frieren")
-    print(a.num_list_users, a.num_scoring_users)
-    a2 = Anime.from_id(1)
-    print(a2.num_list_users, a2.num_scoring_users)
+    # a = Anime.search("frieren")
+    # from pprint import pprint
+    # pprint({k: v for k, v in a.__dict__.items() if not k.startswith("_")})
+    a2 = Anime.from_id(20)
+    print(a2.related_entries)
 
     # import time
     # from concurrent.futures import ThreadPoolExecutor

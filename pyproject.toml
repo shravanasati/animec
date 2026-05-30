@@ -1,6 +1,6 @@
 [project]
 name = "animec"
-version = "0.4.2"
+version = "0.5.0"
 description = "A module to get data about anime characters, news, info, lyrics and more."
 readme = "README.md"
 authors = [{ name = "Shravan Asati", email = "dev.shravan@proton.me" }]
